@@ -16,22 +16,31 @@ library("parallel")
 
 # Rats (carrion measurements, environmental parameters incl. elevation and data logger temperature on plot)
 x2 <- read.csv("Torsten_modifiedJE.csv", sep=";", dec=",", fileEncoding="latin1") # Carrion dataset
+names(x2)[names(x2)=="average_Temp_DL"] <- "average_Temp_DL_exp" # average Temperature during experiment (April/May until August)
 
 # Dung (including measurements, environmental parameters incl. elevation and data logger temperature on plot)
 wisent<-read.csv2("wisent2_JE_new.csv", header=TRUE, dec=".")
+names(wisent)[names(wisent)=="PLOTID"] <- "PlotID" # rename PLOTID for consistency
+names(wisent)[names(wisent)=="average_Temp_DL"] <- "average_Temp_DL_exp"
 
-
-# klima- dataset:
+# klima- dataset:contains information about all 179 study sites
 # PlotID: Study site ID
-# average_Temp_DL: local temperature measured by datalogger on study sites during experiment (also included in data sets x2 and wisent)
+# average_Temp_DL: local temperature measured by datalogger on study sites during field season 
 # elevation: elevation of study sites (also included in data sets x2 and wisent)
 # av_prec_exp: modelled average precipitation during experiment (data from Deutscher Wetterdienst)
 # av_temp_exp: modelled average temperature during experiment (data from Deutscher Wetterdienst)
 # Annual_P_LT: modelled mean-annual precipitation over past 30 years on study sites (long-term data) (data from Deuscher Wetterdienst)
 # Annual_T2AVG_LT: modelled mean-annual temperature over past 30 years on study sites (long-term data) (data from Deuscher Wetterdienst))
 climate <- read.csv("klima.csv", row.names = 1L)
+# climate1$elevation[climate1$elevation ==576] <- 595 # wrong value for plot 7837_4_U
+climate = climate[,-3] #remove elevation, since already in other data frames
 
-#### Correlation of environmental variables ####
+# merge experimental carrion and dung data with all climate data
+x2 = merge(x2, climate, by="PlotID") 
+wisent = merge(wisent, climate, by="PlotID")
+
+
+#### Correlation of environmental variables with climate data set containing all 179 study sites ####
 
 # elevation and local temperature (data logger) during experiment
 hist(climate$elevation)
@@ -92,16 +101,16 @@ x2$elevation100 <- x2$elevation / 100
 x2$end_day_gam = x2$end_day1
 x2$end_day_gam[x2$Status == FALSE] = x2$start_day1[x2$Status==FALSE]
 
-gam_rat <- gam(end_day_gam~ Insects + Habitat + Landscape  + average_Temp_DL +s(elevation100) + s(PlotID, bs="re"),
+gam_rat <- gam(end_day_gam~ Insects + Habitat + Landscape  + average_Temp_DL_exp +s(elevation100) + s(PlotID, bs="re"),
                family=cox.ph(), data=x2, weights=Status)
 summary(gam_rat)
 
 ### just a check
-tmp_gam <- gam(end_day_gam~ Insects + Habitat + Landscape  + average_Temp_DL + elevation100 + s(PlotID, bs="re"),
+tmp_gam <- gam(end_day_gam~ Insects + Habitat + Landscape  + average_Temp_DL_exp + elevation100 + s(PlotID, bs="re"),
                family=cox.ph(), data=x2, weights=Status)
-tmp_ME <- CoxphME(Surv(end_day_gam, Status) ~ Insects + Habitat + Landscape  + average_Temp_DL + elevation100
+tmp_ME <- CoxphME(Surv(end_day_gam, Status) ~ Insects + Habitat + Landscape  + average_Temp_DL_exp + elevation100
                   + (1 | PlotID), data = x2)
-tmp_me <- coxme(Surv(end_day_gam, Status) ~ Insects + Habitat + Landscape  + average_Temp_DL + elevation100
+tmp_me <- coxme(Surv(end_day_gam, Status) ~ Insects + Habitat + Landscape  + average_Temp_DL_exp + elevation100
                 + (1 | PlotID), data = x2)
 
 ### s(elevation) not needed -> linear Cox model
@@ -125,11 +134,9 @@ text(2, 3, "B)", cex=1.5)
 
 
 # 2) gam including long-term temperature and precipitation ##
-# merge data frames x2 and climate to include long-term temperature and precipitation in model
-x3 = merge(x2, climate, by="PlotID")
 
 gam_rat2 <- gam(end_day_gam~ Insects + Habitat + Landscape  + Annual_T2AVG_LT + Annual_P_LT  + s(PlotID, bs="re"),
-                family=cox.ph(), data=x3, weights=Status)
+                family=cox.ph(), data=x2, weights=Status)
 summary(gam_rat2)
 
 
@@ -155,14 +162,14 @@ AIC(gam_rat2) # 2296.973 mit long-term temperature + precipitation
 start <- x2$start_day1 
 stop <- x2$end_day1
 stop[stop == 1000] <- Inf
-x3$time <- with(x3, Surv(time = start, time2 = stop, type = "interval2"))
+x3$time <- with(x2, Surv(time = start, time2 = stop, type = "interval2"))
 
-rats2 <- x3[, c("PlotID", "time", "Insects", 
-                "Landscape", "Habitat", "elevation100", "average_Temp_DL.x", "Annual_T2AVG_LT", "Annual_P_LT")]
+rats2 <- x2[, c("PlotID", "time", "Insects", 
+                "Landscape", "Habitat", "elevation100", "average_Temp_DL_exp", "Annual_T2AVG_LT", "Annual_P_LT")]
 
 #dump("rats2")
 
-cm3 <- CoxphME(time ~ Insects + Landscape + Habitat  +  average_Temp_DL.x + elevation100 +
+cm3 <- CoxphME(time ~ Insects + Landscape + Habitat  +  average_Temp_DL_exp + elevation100 +
                  (1 | PlotID), data = rats2)
 summary(cm3)
 cf3 <- exp(coef(cm3))
@@ -240,7 +247,7 @@ wisent[["Habitat"]] <- factor(wisent[["Plot_type_3"]],
                               levels = letters[1:4], 
                               labels = c("forest", "meadow", "arable field", "settlement"))
 
-wisent[["PlotID"]] <- factor(wisent[["PLOTID"]])
+wisent[["PlotID"]] <- factor(wisent[["PlotID"]])
 
 ### <TH> was macht das subset?
 wisent<-subset(wisent,weight_loss<100) # nur Dung mit Gewichtsabnahme wird in Datensatz aufgenommen, eine Dungprobe hatte an Gewicht zugenommen (bspw. K??fer und W??rmer, die im Dung waren und mit gewogen wurden)
